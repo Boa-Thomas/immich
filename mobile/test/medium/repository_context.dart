@@ -11,6 +11,7 @@ import 'package:immich_mobile/infrastructure/entities/local_album_asset.entity.d
 import 'package:immich_mobile/infrastructure/entities/local_asset.entity.drift.dart';
 import 'package:immich_mobile/infrastructure/entities/remote_album.entity.drift.dart';
 import 'package:immich_mobile/infrastructure/entities/remote_album_asset.entity.drift.dart';
+import 'package:immich_mobile/infrastructure/entities/remote_album_user.entity.drift.dart';
 import 'package:immich_mobile/infrastructure/entities/remote_asset.entity.drift.dart';
 import 'package:immich_mobile/infrastructure/entities/remote_asset_cloud_id.entity.drift.dart';
 import 'package:immich_mobile/infrastructure/entities/user.entity.drift.dart';
@@ -149,13 +150,13 @@ class MediumRepositoryContext {
     String? thumbnailAssetId,
   }) async {
     id = id ?? const Uuid().v4();
-    return db
+
+    final album = await db
         .into(db.remoteAlbumEntity)
         .insertReturning(
           RemoteAlbumEntityCompanion(
             id: Value(id),
             name: Value(name ?? 'remote_album_$id'),
-            ownerId: Value(ownerId ?? const Uuid().v4()),
             createdAt: Value(createdAt ?? DateTime.now()),
             updatedAt: Value(updatedAt ?? DateTime.now()),
             description: Value(description ?? 'Description for album $id'),
@@ -164,6 +165,18 @@ class MediumRepositoryContext {
             thumbnailAssetId: Value(thumbnailAssetId),
           ),
         );
+
+    await db
+        .into(db.remoteAlbumUserEntity)
+        .insert(
+          RemoteAlbumUserEntityCompanion.insert(
+            albumId: id,
+            userId: ownerId ?? const Uuid().v4(),
+            role: AlbumUserRole.owner,
+          ),
+        );
+
+    return album;
   }
 
   Future<void> insertRemoteAlbumAsset({required String albumId, required String assetId}) {
