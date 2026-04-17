@@ -37,7 +37,7 @@ dependencies:
   fluttertoast: ^8.2.12
   geolocator: ^14.0.2
   home_widget: ^0.8.1
-  hooks_riverpod: ^2.6.1
+  hooks_riverpod: ^3.0.0
   http: ^1.5.0
   image_picker: ^1.2.0
   immich_ui:
