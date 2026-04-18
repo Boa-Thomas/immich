@@ -1,6 +1,6 @@
-import { SettingInputFieldType } from '$lib/constants';
 import { render } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
+import { SettingInputFieldType } from '$lib/constants';
 import SettingInputField from './setting-input-field.svelte';
 
 describe('SettingInputField component', () => {
