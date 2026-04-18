@@ -18,6 +18,7 @@ describe(SearchService.name, () => {
   beforeEach(() => {
     ({ sut, mocks } = newTestService(SearchService));
     mocks.partner.getAll.mockResolvedValue([]);
+    mocks.album.getOwnerIdsSharedWith.mockResolvedValue([]);
   });
 
   it('should work', () => {
@@ -38,6 +39,92 @@ describe(SearchService.name, () => {
       await sut.searchPerson(auth, { name, withHidden: true });
 
       expect(mocks.person.getByName).toHaveBeenCalledWith(auth.user.id, [auth.user.id], name, { withHidden: true });
+    });
+
+    it('should widen owner IDs to include partners who share timeline', async () => {
+      const auth = AuthFactory.create();
+      const partnerId = 'partner-1';
+      mocks.person.getByName.mockResolvedValue([]);
+      mocks.partner.getAll.mockResolvedValue([
+        {
+          sharedById: partnerId,
+          sharedWithId: auth.user.id,
+          inTimeline: true,
+          sharedBy: { id: partnerId } as never,
+          sharedWith: { id: auth.user.id } as never,
+        } as never,
+      ]);
+
+      await sut.searchPerson(auth, { name: 'john', withHidden: false });
+
+      expect(mocks.person.getByName).toHaveBeenCalledWith(
+        auth.user.id,
+        expect.arrayContaining([auth.user.id, partnerId]),
+        'john',
+        { withHidden: false },
+      );
+    });
+
+    it('should widen owner IDs to include users who shared an album with the viewer', async () => {
+      const auth = AuthFactory.create();
+      const sharerId = 'sharer-1';
+      mocks.person.getByName.mockResolvedValue([]);
+      mocks.album.getOwnerIdsSharedWith.mockResolvedValue([sharerId]);
+
+      await sut.searchPerson(auth, { name: 'john', withHidden: false });
+
+      expect(mocks.album.getOwnerIdsSharedWith).toHaveBeenCalledWith(auth.user.id);
+      expect(mocks.person.getByName).toHaveBeenCalledWith(
+        auth.user.id,
+        expect.arrayContaining([auth.user.id, sharerId]),
+        'john',
+        { withHidden: false },
+      );
+    });
+
+    it('should de-duplicate owner IDs when a partner also shares an album', async () => {
+      const auth = AuthFactory.create();
+      const bothId = 'both-1';
+      mocks.person.getByName.mockResolvedValue([]);
+      mocks.partner.getAll.mockResolvedValue([
+        {
+          sharedById: bothId,
+          sharedWithId: auth.user.id,
+          inTimeline: true,
+          sharedBy: { id: bothId } as never,
+          sharedWith: { id: auth.user.id } as never,
+        } as never,
+      ]);
+      mocks.album.getOwnerIdsSharedWith.mockResolvedValue([bothId]);
+
+      await sut.searchPerson(auth, { name: 'john', withHidden: false });
+
+      const ownerIds = mocks.person.getByName.mock.calls[0][1] as string[];
+      expect(ownerIds).toEqual([auth.user.id, bothId]);
+    });
+  });
+
+  describe('searchMetadata', () => {
+    beforeEach(() => {
+      mocks.search.searchMetadata.mockResolvedValue({ hasNextPage: false, items: [] });
+    });
+
+    it('should not widen to album-accessible assets when no personIds are passed', async () => {
+      const auth = AuthFactory.create();
+      await sut.searchMetadata(auth, {} as never);
+      expect(mocks.search.searchMetadata).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ albumSharedWithUserId: undefined }),
+      );
+    });
+
+    it('should widen to album-accessible assets when personIds are passed', async () => {
+      const auth = AuthFactory.create();
+      await sut.searchMetadata(auth, { personIds: ['p-1'] } as never);
+      expect(mocks.search.searchMetadata).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ albumSharedWithUserId: auth.user.id, personIds: ['p-1'] }),
+      );
     });
   });
 

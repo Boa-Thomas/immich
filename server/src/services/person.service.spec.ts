@@ -90,6 +90,31 @@ describe(PersonService.name, () => {
         withHidden: false,
       });
     });
+
+    it('should widen owner IDs to include partners and album sharers', async () => {
+      const auth = AuthFactory.create();
+      const partnerId = 'partner-1';
+      const sharerId = 'sharer-1';
+
+      mocks.partner.getAll.mockResolvedValue([
+        {
+          sharedById: partnerId,
+          sharedWithId: auth.user.id,
+          inTimeline: true,
+          sharedBy: { id: partnerId } as never,
+          sharedWith: { id: auth.user.id } as never,
+        } as never,
+      ]);
+      mocks.album.getOwnerIdsSharedWith.mockResolvedValue([sharerId]);
+      mocks.person.getAllForUser.mockResolvedValue({ items: [], hasNextPage: false });
+      mocks.person.getNumberOfPeople.mockResolvedValue({ total: 0, hidden: 0 });
+
+      await sut.getAll(auth, { withHidden: false, page: 1, size: 10 });
+
+      const ownerIds = mocks.person.getAllForUser.mock.calls[0][2] as string[];
+      expect(ownerIds).toEqual(expect.arrayContaining([auth.user.id, partnerId, sharerId]));
+      expect(mocks.person.getNumberOfPeople).toHaveBeenCalledWith(auth.user.id, ownerIds);
+    });
   });
 
   describe('getById', () => {
