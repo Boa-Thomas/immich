@@ -81,6 +81,11 @@ const PersonResponseSchema = z
       .optional()
       .describe('Person color (hex)')
       .meta(new HistoryBuilder().added('v1.126.0').stable('v2').getExtensions()),
+    ownerId: z.string().uuid().describe('User ID that owns this person').optional(),
+    isOwner: z
+      .boolean()
+      .optional()
+      .describe('True when the requesting user owns this person. False for borrowed (shared-album / partner) people.'),
   })
   .meta({ id: 'PersonResponseDto' });
 
@@ -180,7 +185,7 @@ const PeopleResponseSchema = z
   .describe('People response');
 export class PeopleResponseDto extends createZodDto(PeopleResponseSchema) {}
 
-export function mapPerson(person: MaybeDehydrated<Person>): PersonResponseDto {
+export function mapPerson(person: MaybeDehydrated<Person>, viewerId?: string): PersonResponseDto {
   return {
     id: person.id,
     name: person.name,
@@ -190,6 +195,8 @@ export function mapPerson(person: MaybeDehydrated<Person>): PersonResponseDto {
     isFavorite: person.isFavorite,
     color: person.color ?? undefined,
     updatedAt: asDateString(person.updatedAt),
+    ownerId: person.ownerId,
+    isOwner: viewerId === undefined ? undefined : person.ownerId === viewerId,
   };
 }
 
@@ -224,6 +231,6 @@ export function mapFaces(
 ): AssetFaceResponseDto {
   return {
     ...mapFacesWithoutPerson(face, edits, assetDimensions),
-    person: face.person?.ownerId === auth.user.id ? mapPerson(face.person) : null,
+    person: face.person ? mapPerson(face.person, auth.user.id) : null,
   };
 }

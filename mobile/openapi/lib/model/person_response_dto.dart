@@ -18,7 +18,9 @@ class PersonResponseDto {
     required this.id,
     this.isFavorite,
     required this.isHidden,
+    this.isOwner,
     required this.name,
+    this.ownerId,
     required this.thumbnailPath,
     this.updatedAt,
   });
@@ -50,8 +52,26 @@ class PersonResponseDto {
   /// Is hidden
   bool isHidden;
 
+  /// True when the requesting user owns this person. False for borrowed (shared-album / partner) people.
+  ///
+  /// Please note: This property should have been non-nullable! Since the specification file
+  /// does not include a default value (using the "default:" property), however, the generated
+  /// source code must fall back to having a nullable type.
+  /// Consider adding a "default:" property in the specification file to hide this note.
+  ///
+  bool? isOwner;
+
   /// Person name
   String name;
+
+  /// User ID that owns this person
+  ///
+  /// Please note: This property should have been non-nullable! Since the specification file
+  /// does not include a default value (using the "default:" property), however, the generated
+  /// source code must fall back to having a nullable type.
+  /// Consider adding a "default:" property in the specification file to hide this note.
+  ///
+  String? ownerId;
 
   /// Thumbnail path
   String thumbnailPath;
@@ -72,7 +92,9 @@ class PersonResponseDto {
     other.id == id &&
     other.isFavorite == isFavorite &&
     other.isHidden == isHidden &&
+    other.isOwner == isOwner &&
     other.name == name &&
+    other.ownerId == ownerId &&
     other.thumbnailPath == thumbnailPath &&
     other.updatedAt == updatedAt;
 
@@ -84,12 +106,14 @@ class PersonResponseDto {
     (id.hashCode) +
     (isFavorite == null ? 0 : isFavorite!.hashCode) +
     (isHidden.hashCode) +
+    (isOwner == null ? 0 : isOwner!.hashCode) +
     (name.hashCode) +
+    (ownerId == null ? 0 : ownerId!.hashCode) +
     (thumbnailPath.hashCode) +
     (updatedAt == null ? 0 : updatedAt!.hashCode);
 
   @override
-  String toString() => 'PersonResponseDto[birthDate=$birthDate, color=$color, id=$id, isFavorite=$isFavorite, isHidden=$isHidden, name=$name, thumbnailPath=$thumbnailPath, updatedAt=$updatedAt]';
+  String toString() => 'PersonResponseDto[birthDate=$birthDate, color=$color, id=$id, isFavorite=$isFavorite, isHidden=$isHidden, isOwner=$isOwner, name=$name, ownerId=$ownerId, thumbnailPath=$thumbnailPath, updatedAt=$updatedAt]';
 
   Map<String, dynamic> toJson() {
     final json = <String, dynamic>{};
@@ -110,7 +134,17 @@ class PersonResponseDto {
     //  json[r'isFavorite'] = null;
     }
       json[r'isHidden'] = this.isHidden;
+    if (this.isOwner != null) {
+      json[r'isOwner'] = this.isOwner;
+    } else {
+    //  json[r'isOwner'] = null;
+    }
       json[r'name'] = this.name;
+    if (this.ownerId != null) {
+      json[r'ownerId'] = this.ownerId;
+    } else {
+    //  json[r'ownerId'] = null;
+    }
       json[r'thumbnailPath'] = this.thumbnailPath;
     if (this.updatedAt != null) {
       json[r'updatedAt'] = this.updatedAt!.toUtc().toIso8601String();
@@ -134,7 +168,9 @@ class PersonResponseDto {
         id: mapValueOfType<String>(json, r'id')!,
         isFavorite: mapValueOfType<bool>(json, r'isFavorite'),
         isHidden: mapValueOfType<bool>(json, r'isHidden')!,
+        isOwner: mapValueOfType<bool>(json, r'isOwner'),
         name: mapValueOfType<String>(json, r'name')!,
+        ownerId: mapValueOfType<String>(json, r'ownerId'),
         thumbnailPath: mapValueOfType<String>(json, r'thumbnailPath')!,
         updatedAt: mapDateTime(json, r'updatedAt', r''),
       );

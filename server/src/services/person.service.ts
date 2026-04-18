@@ -40,7 +40,7 @@ import { AssetFaceTable } from 'src/schema/tables/asset-face.table';
 import { FaceSearchTable } from 'src/schema/tables/face-search.table';
 import { BaseService } from 'src/services/base.service';
 import { JobItem, JobOf } from 'src/types';
-import { getDimensions } from 'src/utils/asset.util';
+import { getDimensions, getMyPartnerIds } from 'src/utils/asset.util';
 import { ImmichFileResponse } from 'src/utils/file';
 import { mimeTypes } from 'src/utils/mime-types';
 import { isFacialRecognitionEnabled } from 'src/utils/misc';
@@ -64,19 +64,32 @@ export class PersonService extends BaseService {
       closestFaceAssetId = person.faceAssetId;
     }
     const { machineLearning } = await this.getConfig({ withCache: false });
-    const { items, hasNextPage } = await this.personRepository.getAllForUser(pagination, auth.user.id, {
+    const ownerIds = await this.getPeopleOwnerIdsToSearch(auth);
+    const { items, hasNextPage } = await this.personRepository.getAllForUser(pagination, auth.user.id, ownerIds, {
       minimumFaceCount: machineLearning.facialRecognition.minFaces,
       withHidden,
       closestFaceAssetId,
     });
-    const { total, hidden } = await this.personRepository.getNumberOfPeople(auth.user.id);
+    const { total, hidden } = await this.personRepository.getNumberOfPeople(auth.user.id, ownerIds);
 
     return {
-      people: items.map((person) => mapPerson(person)),
+      people: items.map((person) => mapPerson(person, auth.user.id)),
       hasNextPage,
       total,
       hidden,
     };
+  }
+
+  private async getPeopleOwnerIdsToSearch(auth: AuthDto): Promise<string[]> {
+    const [partnerIds, albumSharerIds] = await Promise.all([
+      getMyPartnerIds({
+        userId: auth.user.id,
+        repository: this.partnerRepository,
+        timelineEnabled: true,
+      }),
+      this.albumRepository.getOwnerIdsSharedWith(auth.user.id),
+    ]);
+    return [...new Set([auth.user.id, ...partnerIds, ...(albumSharerIds ?? [])])];
   }
 
   async reassignFaces(auth: AuthDto, personId: string, dto: AssetFaceUpdateDto): Promise<PersonResponseDto[]> {
@@ -99,7 +112,7 @@ export class PersonService extends BaseService {
         await this.personRepository.reassignFace(face.id, personId);
       }
 
-      result.push(mapPerson(person));
+      result.push(mapPerson(person, auth.user.id));
     }
     if (changeFeaturePhoto.length > 0) {
       // Remove duplicates
@@ -122,7 +135,7 @@ export class PersonService extends BaseService {
       await this.createNewFeaturePhoto([face.person.id]);
     }
 
-    return await this.findOrFail(personId).then(mapPerson);
+    return await this.findOrFail(personId).then((p) => mapPerson(p, auth.user.id));
   }
 
   async getFacesById(auth: AuthDto, dto: FaceDto): Promise<AssetFaceResponseDto[]> {
@@ -154,7 +167,7 @@ export class PersonService extends BaseService {
 
   async getById(auth: AuthDto, id: string): Promise<PersonResponseDto> {
     await this.requireAccess({ auth, permission: Permission.PersonRead, ids: [id] });
-    return this.findOrFail(id).then(mapPerson);
+    return this.findOrFail(id).then((p) => mapPerson(p, auth.user.id));
   }
 
   async getStatistics(auth: AuthDto, id: string): Promise<PersonStatisticsResponseDto> {
@@ -186,7 +199,7 @@ export class PersonService extends BaseService {
       color: dto.color,
     });
 
-    return mapPerson(person);
+    return mapPerson(person, auth.user.id);
   }
 
   async update(auth: AuthDto, id: string, dto: PersonUpdateDto): Promise<PersonResponseDto> {
@@ -219,7 +232,7 @@ export class PersonService extends BaseService {
       await this.jobRepository.queue({ name: JobName.PersonGenerateThumbnail, data: { id } });
     }
 
-    return mapPerson(person);
+    return mapPerson(person, auth.user.id);
   }
 
   delete(auth: AuthDto, id: string): Promise<void> {

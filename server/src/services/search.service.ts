@@ -29,8 +29,11 @@ export class SearchService extends BaseService {
   private embeddingCache = new LRUMap<string, string>(100);
 
   async searchPerson(auth: AuthDto, dto: SearchPeopleDto): Promise<PersonResponseDto[]> {
-    const people = await this.personRepository.getByName(auth.user.id, dto.name, { withHidden: dto.withHidden });
-    return people.map((person) => mapPerson(person));
+    const ownerIds = await this.getPeopleOwnerIdsToSearch(auth);
+    const people = await this.personRepository.getByName(auth.user.id, ownerIds, dto.name, {
+      withHidden: dto.withHidden,
+    });
+    return people.map((person) => mapPerson(person, auth.user.id));
   }
 
   async searchPlaces(dto: SearchPlacesDto): Promise<PlacesResponseDto[]> {
@@ -66,6 +69,7 @@ export class SearchService extends BaseService {
         ...dto,
         checksum,
         userIds,
+        albumSharedWithUserId: this.albumWideningFor(auth, dto.personIds),
         orderDirection: dto.order ?? AssetOrder.Desc,
       },
     );
@@ -79,6 +83,7 @@ export class SearchService extends BaseService {
     return await this.searchRepository.searchStatistics({
       ...dto,
       userIds,
+      albumSharedWithUserId: this.albumWideningFor(auth, dto.personIds),
     });
   }
 
@@ -88,7 +93,11 @@ export class SearchService extends BaseService {
     }
 
     const userIds = await this.getUserIdsToSearch(auth);
-    const items = await this.searchRepository.searchRandom(dto.size || 250, { ...dto, userIds });
+    const items = await this.searchRepository.searchRandom(dto.size || 250, {
+      ...dto,
+      userIds,
+      albumSharedWithUserId: this.albumWideningFor(auth, dto.personIds),
+    });
     return items.map((item) => mapAsset(item, { auth }));
   }
 
@@ -98,7 +107,11 @@ export class SearchService extends BaseService {
     }
 
     const userIds = await this.getUserIdsToSearch(auth);
-    const items = await this.searchRepository.searchLargeAssets(dto.size || 250, { ...dto, userIds });
+    const items = await this.searchRepository.searchLargeAssets(dto.size || 250, {
+      ...dto,
+      userIds,
+      albumSharedWithUserId: this.albumWideningFor(auth, dto.personIds),
+    });
     return items.map((item) => mapAsset(item, { auth }));
   }
 
@@ -139,7 +152,12 @@ export class SearchService extends BaseService {
     const size = dto.size || 100;
     const { hasNextPage, items } = await this.searchRepository.searchSmart(
       { page, size },
-      { ...dto, userIds: await userIds, embedding },
+      {
+        ...dto,
+        userIds: await userIds,
+        embedding,
+        albumSharedWithUserId: this.albumWideningFor(auth, dto.personIds),
+      },
     );
 
     return this.mapResponse(items, hasNextPage ? (page + 1).toString() : null, { auth });
@@ -186,6 +204,17 @@ export class SearchService extends BaseService {
     }
   }
 
+  /**
+   * When a personId filter is present, allow the search to also visit assets
+   * the viewer can see via a shared album — not just assets owned by the
+   * viewer or their timeline-sharing partners. Without personIds we return
+   * undefined, which preserves the existing owner/partner-only behavior for
+   * every other kind of search.
+   */
+  private albumWideningFor(auth: AuthDto, personIds?: string[]): string | undefined {
+    return personIds && personIds.length > 0 ? auth.user.id : undefined;
+  }
+
   private async getUserIdsToSearch(auth: AuthDto): Promise<string[]> {
     const partnerIds = await getMyPartnerIds({
       userId: auth.user.id,
@@ -193,6 +222,24 @@ export class SearchService extends BaseService {
       timelineEnabled: true,
     });
     return [auth.user.id, ...partnerIds];
+  }
+
+  /**
+   * Users whose person entities are visible to the viewer: self, partners (timeline
+   * sharing enabled), and owners of any non-deleted album shared with the viewer.
+   * The repository still enforces an accessible-asset predicate per person, so
+   * extra owners never surface people whose faces the viewer cannot actually see.
+   */
+  private async getPeopleOwnerIdsToSearch(auth: AuthDto): Promise<string[]> {
+    const [partnerIds, albumSharerIds] = await Promise.all([
+      getMyPartnerIds({
+        userId: auth.user.id,
+        repository: this.partnerRepository,
+        timelineEnabled: true,
+      }),
+      this.albumRepository.getOwnerIdsSharedWith(auth.user.id),
+    ]);
+    return [...new Set([auth.user.id, ...partnerIds, ...(albumSharerIds ?? [])])];
   }
 
   private mapResponse(assets: MapAsset[], nextPage: string | null, options: AssetMapOptions): SearchResponseDto {

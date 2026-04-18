@@ -18,6 +18,14 @@ export interface SearchAssetIdOptions {
 export interface SearchUserIdOptions {
   libraryId?: string | null;
   userIds?: string[];
+  /**
+   * When set, widens the asset-ownership filter to also include assets the
+   * given user can access via a shared album. Used to make personId-based
+   * searches visit photos of borrowed people whose owner only shared via
+   * an album (not partner timeline). Null/undefined preserves the prior
+   * behavior where only `userIds`-owned assets are returned.
+   */
+  albumSharedWithUserId?: string;
 }
 
 export type SearchIdOptions = SearchAssetIdOptions & SearchUserIdOptions;

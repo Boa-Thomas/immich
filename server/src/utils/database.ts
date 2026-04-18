@@ -353,7 +353,27 @@ export function searchAssetBuilder(kysely: Kysely<DB>, options: AssetSearchBuild
     .$if(!!options.checksum, (qb) => qb.where('asset.checksum', '=', options.checksum!))
     .$if(!!options.id, (qb) => qb.where('asset.id', '=', asUuid(options.id!)))
     .$if(!!options.libraryId, (qb) => qb.where('asset.libraryId', '=', asUuid(options.libraryId!)))
-    .$if(!!options.userIds, (qb) => qb.where('asset.ownerId', '=', anyUuid(options.userIds!)))
+    .$if(!!options.userIds, (qb) =>
+      qb.where((eb) => {
+        const byOwner = eb('asset.ownerId', '=', anyUuid(options.userIds!));
+        if (!options.albumSharedWithUserId) {
+          return byOwner;
+        }
+        const viewerId = options.albumSharedWithUserId;
+        return eb.or([
+          byOwner,
+          eb.exists((inner) =>
+            inner
+              .selectFrom('album_asset')
+              .innerJoin('album', 'album.id', 'album_asset.albumId')
+              .leftJoin('album_user', 'album_user.albumId', 'album.id')
+              .whereRef('album_asset.assetId', '=', 'asset.id')
+              .where('album.deletedAt', 'is', null)
+              .where((e) => e.or([e('album.ownerId', '=', viewerId), e('album_user.userId', '=', viewerId)])),
+          ),
+        ]);
+      }),
+    )
     .$if(!!options.encodedVideoPath, (qb) =>
       qb
         .innerJoin('asset_file', (join) =>

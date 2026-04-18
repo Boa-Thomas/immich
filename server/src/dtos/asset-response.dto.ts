@@ -174,6 +174,7 @@ const peopleWithFaces = (
   faces?: MaybeDehydrated<AssetFace>[],
   edits?: AssetEditActionItem[],
   assetDimensions?: ImageDimensions,
+  viewerId?: string,
 ): PersonWithFacesResponseDto[] => {
   if (!faces) {
     return [];
@@ -188,7 +189,7 @@ const peopleWithFaces = (
 
     if (!peopleFaces.has(face.person.id)) {
       peopleFaces.set(face.person.id, {
-        ...mapPerson(face.person),
+        ...mapPerson(face.person, viewerId),
         faces: [],
       });
     }
@@ -255,7 +256,7 @@ export function mapAsset(entity: MaybeDehydrated<MapAsset>, options: AssetMapOpt
     exifInfo: entity.exifInfo ? mapExif(entity.exifInfo) : undefined,
     livePhotoVideoId: entity.livePhotoVideoId,
     tags: entity.tags?.map((tag) => mapTag(tag)),
-    people: peopleWithFaces(entity.faces, entity.edits, assetDimensions),
+    people: peopleWithFaces(entity.faces, entity.edits, assetDimensions, options.auth?.user.id),
     unassignedFaces: entity.faces
       ?.filter((face) => !face.person)
       .map((face) => mapFacesWithoutPerson(face, entity.edits, assetDimensions)),
