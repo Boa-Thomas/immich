@@ -69,6 +69,62 @@ const withPerson = (eb: ExpressionBuilder<DB, 'asset_face'>) => {
   ).as('person');
 };
 
+/**
+ * True when the outer `asset` row is accessible to the viewer — either as owner
+ * (Timeline visibility), via partner sharing (Timeline or Hidden), or because
+ * it belongs to an album the viewer can access.
+ */
+const assetVisibleToViewer =
+  (viewerId: string) =>
+  (eb: ExpressionBuilder<DB, 'asset'>) =>
+    eb.or([
+      eb.and([
+        eb('asset.ownerId', '=', viewerId),
+        eb('asset.visibility', '=', sql.lit(AssetVisibility.Timeline)),
+      ]),
+      eb.exists((qb) =>
+        qb
+          .selectFrom('partner')
+          .whereRef('partner.sharedById', '=', 'asset.ownerId')
+          .where('partner.sharedWithId', '=', viewerId)
+          .where('partner.inTimeline', '=', true)
+          .where((e) =>
+            e.or([
+              e('asset.visibility', '=', sql.lit(AssetVisibility.Timeline)),
+              e('asset.visibility', '=', sql.lit(AssetVisibility.Hidden)),
+            ]),
+          ),
+      ),
+      eb.exists((qb) =>
+        qb
+          .selectFrom('album_asset')
+          .innerJoin('album', 'album.id', 'album_asset.albumId')
+          .leftJoin('album_user', 'album_user.albumId', 'album.id')
+          .whereRef('album_asset.assetId', '=', 'asset.id')
+          .where('album.deletedAt', 'is', null)
+          .where((e) => e.or([e('album.ownerId', '=', viewerId), e('album_user.userId', '=', viewerId)])),
+      ),
+    ]);
+
+/**
+ * True when the outer `person` row has at least one visible face on an asset
+ * accessible to the viewer. Used in person-listing queries to prevent borrowed
+ * people from surfacing when the viewer cannot actually see any of their photos.
+ */
+const personHasAccessibleFace =
+  (viewerId: string) =>
+  (eb: ExpressionBuilder<DB, 'person'>) =>
+    eb.exists((qb) =>
+      qb
+        .selectFrom('asset_face')
+        .innerJoin('asset', 'asset.id', 'asset_face.assetId')
+        .whereRef('asset_face.personId', '=', 'person.id')
+        .where('asset_face.deletedAt', 'is', null)
+        .where('asset_face.isVisible', 'is', true)
+        .where('asset.deletedAt', 'is', null)
+        .where(assetVisibleToViewer(viewerId)),
+    );
+
 const withFaceSearch = (eb: ExpressionBuilder<DB, 'asset_face'>) => {
   return jsonObjectFrom(
     eb.selectFrom('face_search').selectAll('face_search').whereRef('face_search.faceId', '=', 'asset_face.id'),
@@ -148,19 +204,25 @@ export class PersonRepository {
       .execute();
   }
 
-  @GenerateSql({ params: [{ take: 1, skip: 0 }, DummyValue.UUID] })
-  async getAllForUser(pagination: PaginationOptions, userId: string, options?: PersonSearchOptions) {
+  @GenerateSql({ params: [{ take: 1, skip: 0 }, DummyValue.UUID, [DummyValue.UUID]] })
+  async getAllForUser(
+    pagination: PaginationOptions,
+    viewerId: string,
+    ownerIds: string[],
+    options?: PersonSearchOptions,
+  ) {
+    if (ownerIds.length === 0) {
+      return paginationHelper([], pagination.take);
+    }
     const items = await this.db
       .selectFrom('person')
       .selectAll('person')
       .innerJoin('asset_face', 'asset_face.personId', 'person.id')
       .innerJoin('asset', (join) =>
-        join
-          .onRef('asset_face.assetId', '=', 'asset.id')
-          .on('asset.visibility', '=', sql.lit(AssetVisibility.Timeline))
-          .on('asset.deletedAt', 'is', null),
+        join.onRef('asset_face.assetId', '=', 'asset.id').on('asset.deletedAt', 'is', null),
       )
-      .where('person.ownerId', '=', userId)
+      .where('person.ownerId', 'in', ownerIds)
+      .where(assetVisibleToViewer(viewerId))
       .where('asset_face.deletedAt', 'is', null)
       .where('asset_face.isVisible', 'is', true)
       .orderBy('person.isHidden', 'asc')
@@ -307,15 +369,19 @@ export class PersonRepository {
       .executeTakeFirst();
   }
 
-  @GenerateSql({ params: [DummyValue.UUID, DummyValue.STRING, { withHidden: true }] })
-  getByName(userId: string, personName: string, { withHidden }: PersonNameSearchOptions) {
+  @GenerateSql({ params: [DummyValue.UUID, [DummyValue.UUID], DummyValue.STRING, { withHidden: true }] })
+  getByName(viewerId: string, ownerIds: string[], personName: string, { withHidden }: PersonNameSearchOptions) {
+    if (ownerIds.length === 0) {
+      return Promise.resolve([]);
+    }
     return this.db
       .with('similarity_threshold', (db) =>
         db.selectNoFrom(sql`set_config('pg_trgm.word_similarity_threshold', '0.5', true)`.as('thresh')),
       )
       .selectFrom(['similarity_threshold', 'person'])
       .selectAll('person')
-      .where('person.ownerId', '=', userId)
+      .where('person.ownerId', 'in', ownerIds)
+      .where(personHasAccessibleFace(viewerId))
       .where(() => sql`f_unaccent("person"."name") %> f_unaccent(${personName})`)
       .orderBy(sql`f_unaccent("person"."name") <->>> f_unaccent(${personName})`)
       .limit(100)
@@ -355,30 +421,16 @@ export class PersonRepository {
     };
   }
 
-  @GenerateSql({ params: [DummyValue.UUID] })
-  getNumberOfPeople(userId: string) {
+  @GenerateSql({ params: [DummyValue.UUID, [DummyValue.UUID]] })
+  getNumberOfPeople(viewerId: string, ownerIds: string[]) {
     const zero = sql.lit(0);
+    if (ownerIds.length === 0) {
+      return Promise.resolve({ total: 0, hidden: 0 });
+    }
     return this.db
       .selectFrom('person')
-      .where((eb) =>
-        eb.exists((eb) =>
-          eb
-            .selectFrom('asset_face')
-            .whereRef('asset_face.personId', '=', 'person.id')
-            .where('asset_face.deletedAt', 'is', null)
-            .where('asset_face.isVisible', '=', true)
-            .where((eb) =>
-              eb.exists((eb) =>
-                eb
-                  .selectFrom('asset')
-                  .whereRef('asset.id', '=', 'asset_face.assetId')
-                  .where('asset.visibility', '=', sql.lit(AssetVisibility.Timeline))
-                  .where('asset.deletedAt', 'is', null),
-              ),
-            ),
-        ),
-      )
-      .where('person.ownerId', '=', userId)
+      .where(personHasAccessibleFace(viewerId))
+      .where('person.ownerId', 'in', ownerIds)
       .select((eb) => eb.fn.coalesce(eb.fn.countAll<number>(), zero).as('total'))
       .select((eb) => eb.fn.coalesce(eb.fn.countAll<number>().filterWhere('isHidden', '=', true), zero).as('hidden'))
       .executeTakeFirstOrThrow();

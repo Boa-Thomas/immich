@@ -377,8 +377,13 @@
                 <button
                   type="button"
                   class="flex items-center justify-center"
-                  title={$t('edit_name')}
-                  onclick={() => (isEditingName = true)}
+                  title={person.isOwner === false ? person.name : $t('edit_name')}
+                  disabled={person.isOwner === false}
+                  onclick={() => {
+                    if (person.isOwner !== false) {
+                      isEditingName = true;
+                    }
+                  }}
                 >
                   <ImageThumbnail
                     circle

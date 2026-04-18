@@ -1149,8 +1149,12 @@ export type PersonResponseDto = {
     isFavorite?: boolean;
     /** Is hidden */
     isHidden: boolean;
+    /** True when the requesting user owns this person. False for borrowed (shared-album / partner) people. */
+    isOwner?: boolean;
     /** Person name */
     name: string;
+    /** User ID that owns this person */
+    ownerId?: string;
     /** Thumbnail path */
     thumbnailPath: string;
     /** Last update date */

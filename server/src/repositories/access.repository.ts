@@ -426,6 +426,68 @@ class PersonAccess {
       .then((persons) => new Set(persons.map((person) => person.id)));
   }
 
+  /**
+   * Read-only visibility: the viewer owns the person, OR the person has at least
+   * one visible face on an asset the viewer can access via partner timeline
+   * sharing or via a shared album.
+   */
+  @GenerateSql({ params: [DummyValue.UUID, DummyValue.UUID_SET] })
+  @ChunkedSet({ paramIndex: 1 })
+  async checkViewAccess(userId: string, personIds: Set<string>) {
+    if (personIds.size === 0) {
+      return new Set<string>();
+    }
+
+    return this.db
+      .selectFrom('person')
+      .select('person.id')
+      .where('person.id', 'in', [...personIds])
+      .where((eb) =>
+        eb.or([
+          eb('person.ownerId', '=', userId),
+          eb.exists((qb) =>
+            qb
+              .selectFrom('asset_face')
+              .innerJoin('asset', 'asset.id', 'asset_face.assetId')
+              .whereRef('asset_face.personId', '=', 'person.id')
+              .where('asset_face.deletedAt', 'is', null)
+              .where('asset_face.isVisible', 'is', true)
+              .where('asset.deletedAt', 'is', null)
+              .where((inner) =>
+                inner.or([
+                  // partner sharing (timeline or hidden)
+                  inner.exists((p) =>
+                    p
+                      .selectFrom('partner')
+                      .whereRef('partner.sharedById', '=', 'asset.ownerId')
+                      .where('partner.sharedWithId', '=', userId)
+                      .where('partner.inTimeline', '=', true)
+                      .where((a) =>
+                        a.or([
+                          a('asset.visibility', '=', sql.lit(AssetVisibility.Timeline)),
+                          a('asset.visibility', '=', sql.lit(AssetVisibility.Hidden)),
+                        ]),
+                      ),
+                  ),
+                  // album sharing: the asset is in an album the viewer can access
+                  inner.exists((a) =>
+                    a
+                      .selectFrom('album_asset')
+                      .innerJoin('album', 'album.id', 'album_asset.albumId')
+                      .leftJoin('album_user', 'album_user.albumId', 'album.id')
+                      .whereRef('album_asset.assetId', '=', 'asset.id')
+                      .where('album.deletedAt', 'is', null)
+                      .where((e) => e.or([e('album.ownerId', '=', userId), e('album_user.userId', '=', userId)])),
+                  ),
+                ]),
+              ),
+          ),
+        ]),
+      )
+      .execute()
+      .then((persons) => new Set(persons.map((person) => person.id)));
+  }
+
   @GenerateSql({ params: [DummyValue.UUID, DummyValue.UUID_SET] })
   @ChunkedSet({ paramIndex: 1 })
   async checkFaceOwnerAccess(userId: string, assetFaceIds: Set<string>) {

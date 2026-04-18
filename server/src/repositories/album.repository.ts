@@ -236,6 +236,24 @@ export class AlbumRepository {
   }
 
   /**
+   * Get distinct user IDs that have shared any (non-deleted) album with the given viewer.
+   * Excludes the viewer's own albums. Used to widen people-visibility for shared albums.
+   */
+  @GenerateSql({ params: [DummyValue.UUID] })
+  async getOwnerIdsSharedWith(viewerId: string): Promise<string[]> {
+    const rows = await this.db
+      .selectFrom('album')
+      .innerJoin('album_user', 'album_user.albumId', 'album.id')
+      .select('album.ownerId')
+      .distinct()
+      .where('album_user.userId', '=', viewerId)
+      .where('album.ownerId', '!=', viewerId)
+      .where('album.deletedAt', 'is', null)
+      .execute();
+    return rows.map((row) => row.ownerId);
+  }
+
+  /**
    * Get albums of owner that are _not_ shared
    */
   @GenerateSql({ params: [DummyValue.UUID] })

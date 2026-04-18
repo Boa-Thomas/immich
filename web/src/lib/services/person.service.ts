@@ -14,37 +14,43 @@ import {
 import type { MessageFormatter } from 'svelte-i18n';
 
 export const getPersonActions = ($t: MessageFormatter, person: PersonResponseDto) => {
+  // Borrowed (shared-album / partner) people are read-only: ownerId is present
+  // and isOwner is false. When the field is absent (older clients), default to
+  // allowing the action so behavior matches the previous version.
+  const isReadOnly = person.isOwner === false;
+
   const SetDateOfBirth: ActionItem = {
     title: $t('set_date_of_birth'),
     icon: mdiCalendarEditOutline,
+    $if: () => !isReadOnly,
     onAction: () => modalManager.show(PersonEditBirthDateModal, { person }),
   };
 
   const Favorite: ActionItem = {
     title: $t('to_favorite'),
     icon: mdiHeartOutline,
-    $if: () => !person.isFavorite,
+    $if: () => !isReadOnly && !person.isFavorite,
     onAction: () => handleFavoritePerson(person),
   };
 
   const Unfavorite: ActionItem = {
     title: $t('unfavorite'),
     icon: mdiHeartMinusOutline,
-    $if: () => !!person.isFavorite,
+    $if: () => !isReadOnly && !!person.isFavorite,
     onAction: () => handleUnfavoritePerson(person),
   };
 
   const HidePerson: ActionItem = {
     title: $t('hide_person'),
     icon: mdiEyeOffOutline,
-    $if: () => !person.isHidden,
+    $if: () => !isReadOnly && !person.isHidden,
     onAction: () => handleHidePerson(person),
   };
 
   const ShowPerson: ActionItem = {
     title: $t('unhide_person'),
     icon: mdiEyeOutline,
-    $if: () => !!person.isHidden,
+    $if: () => !isReadOnly && !!person.isHidden,
     onAction: () => handleShowPerson(person),
   };
 

@@ -33,11 +33,11 @@ describe(SearchService.name, () => {
 
       await sut.searchPerson(auth, { name, withHidden: false });
 
-      expect(mocks.person.getByName).toHaveBeenCalledWith(auth.user.id, name, { withHidden: false });
+      expect(mocks.person.getByName).toHaveBeenCalledWith(auth.user.id, [auth.user.id], name, { withHidden: false });
 
       await sut.searchPerson(auth, { name, withHidden: true });
 
-      expect(mocks.person.getByName).toHaveBeenCalledWith(auth.user.id, name, { withHidden: true });
+      expect(mocks.person.getByName).toHaveBeenCalledWith(auth.user.id, [auth.user.id], name, { withHidden: true });
     });
   });
 
